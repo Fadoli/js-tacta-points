@@ -144,7 +144,7 @@ class WhiteCircleDetector {
         
         // Première passe : collecter tous les pixels blancs (avec limitation)
         const whitePixels = [];
-        const pixelMap = new Map();
+        const pixelGrid = {}; // Structure x -> y -> pixel pour accès rapide
         const progressStep = Math.floor(this.height / 10);
         
         for (let y = 0; y < this.height ; y++) {
@@ -155,7 +155,12 @@ class WhiteCircleDetector {
                 if (this.isWhitePixel(x, y)) {
                     const pixel = { x, y };
                     whitePixels.push(pixel);
-                    pixelMap.set(`${x},${y}`, pixel);
+                    
+                    // Créer la structure à double couche si nécessaire
+                    if (!pixelGrid[x]) {
+                        pixelGrid[x] = {};
+                    }
+                    pixelGrid[x][y] = pixel;
                 }
             }
         }
@@ -170,7 +175,7 @@ class WhiteCircleDetector {
             const key = `${pixel.x},${pixel.y}`;
             if (visited.has(key)) continue;
             
-            const group = this.floodFillConnected(pixel, pixelMap, visited);
+            const group = this.floodFillConnected(pixel, pixelGrid, visited);
             // Filtrer par taille minimale et forme approximativement circulaire
             if (group.length >= minGroupSize && group.length <= 2000) { // Augmenté la limite max
                 if (this.isCircularGroup(group)) {
@@ -274,7 +279,7 @@ class WhiteCircleDetector {
      * Algorithme de flood fill pour grouper les pixels directement connectés (4-connectivité rapide)
      * Version optimisée pour éviter les débordements de pile
      */
-    floodFillConnected(startPixel, pixelMap, visited) {
+    floodFillConnected(startPixel, pixelGrid, visited) {
         const group = [];
         const stack = [startPixel];
         const maxGroupSize = 10000; // Limiter la taille des groupes pour éviter les débordements
@@ -296,9 +301,9 @@ class WhiteCircleDetector {
             for (const [dx, dy] of directions) {
                 const nx = current.x + dx;
                 const ny = current.y + dy;
-                const neighborKey = `${nx},${ny}`;
                 
-                if (pixelMap.has(neighborKey) && !visited.has(neighborKey)) {
+                // Vérifier si le pixel existe dans la grille (accès O(1))
+                if (pixelGrid[nx] && pixelGrid[nx][ny] && !visited.has(`${nx},${ny}`)) {
                     // Limiter la taille de la pile pour éviter les débordements
                     if (stack.length < 10 * maxGroupSize) {
                         stack.push({ x: nx, y: ny });
