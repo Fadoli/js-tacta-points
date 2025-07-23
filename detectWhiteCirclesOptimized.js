@@ -243,12 +243,14 @@ class WhiteCircleDetector {
         if (group.length < 20) return false; // Trop petit pour être un vrai rond
         
         // Calculer les dimensions du rectangle englobant
-        const xMap = group.map(p => p.x);
-        const minX = Math.min(...xMap);
-        const maxX = Math.max(...xMap);
-        const yMap = group.map(p => p.y);
-        const minY = Math.min(...yMap);
-        const maxY = Math.max(...yMap);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < group.length; i++) {
+            const p = group[i];
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        }
 
         const width = maxX - minX + 1;
         const height = maxY - minY + 1;
@@ -312,16 +314,17 @@ class WhiteCircleDetector {
      * Calcule le centre d'un groupe de pixels avec les dimensions
      */
     getGroupCenter(group) {
-        const sumX = group.reduce((sum, p) => sum + p.x, 0);
-        const sumY = group.reduce((sum, p) => sum + p.y, 0);
-        
-        // Calculer les dimensions du groupe
-        const xCoords = group.map(p => p.x);
-        const yCoords = group.map(p => p.y);
-        const minX = Math.min(...xCoords);
-        const maxX = Math.max(...xCoords);
-        const minY = Math.min(...yCoords);
-        const maxY = Math.max(...yCoords);
+        let sumX = 0, sumY = 0;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < group.length; i++) {
+            const p = group[i];
+            sumX += p.x;
+            sumY += p.y;
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        }
         
         const width = maxX - minX + 1;
         const height = maxY - minY + 1;
