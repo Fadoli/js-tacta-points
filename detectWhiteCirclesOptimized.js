@@ -2,30 +2,40 @@ const sharp = require('sharp');
 
 // Configuration des couleurs des cartes dans l'espace HSL pour plus de robustesse
 const CARD_COLORS = [
+    {
+        name: 'rouge', 
+        hsl: { h: 7, s: 69, l: 51 }, // Teinte rouge
+        tolerance: { h: 45, s: 45, l: 45 }
+    },
     { 
         name: 'bleu-marine', 
         hsl: { h: 240, s: 60, l: 30 }, // Teinte bleu foncé
-        tolerance: { h: 20, s: 30, l: 20 }
+        tolerance: { h: 45, s: 45, l: 45 }
     },
     { 
         name: 'bleu-turquoise', 
         hsl: { h: 195, s: 60, l: 50 }, // Teinte bleu-cyan
-        tolerance: { h: 25, s: 30, l: 25 }
+        tolerance: { h: 45, s: 45, l: 45 }
     },
     { 
         name: 'vert', 
-        hsl: { h: 120, s: 45, l: 40 }, // Teinte verte
-        tolerance: { h: 30, s: 30, l: 25 }
+        hsl: { h: 95, s: 45, l: 33 }, // Teinte verte correspondant à RGB(80, 122, 46)
+        tolerance: { h: 45, s: 45, l: 45 }
     },
     { 
         name: 'orange', 
         hsl: { h: 35, s: 65, l: 55 }, // Teinte orange
-        tolerance: { h: 25, s: 30, l: 25 }
+        tolerance: { h: 45, s: 45, l: 45 }
     },
     { 
         name: 'rose', 
         hsl: { h: 320, s: 70, l: 50 }, // Teinte rose-magenta
-        tolerance: { h: 30, s: 30, l: 25 }
+        tolerance: { h: 45, s: 45, l: 45 }
+    },
+    {
+        name: 'noir',
+        hsl: { h: 0, s: 0, l: 15 }, // Teinte noire
+        tolerance: { h: 360, s: 30, l: 25 }
     }
 ];
 
@@ -115,7 +125,15 @@ class WhiteCircleDetector {
     isWhitePixel(x, y) {
         const color = this.getPixelColor(x, y);
         if (!color) return false;
-        return (color.r + color.g + color.b) > 570;
+
+        const luminance = (color.r + color.g + color.b) / 3;
+        if (luminance > 190) return true; // Critère de luminosité simple
+        const rOver = color.r / luminance;
+        const gOver = color.g / luminance;
+        const bOver = color.b / luminance;
+        if (luminance > 160 && rOver > 0.8 && gOver > 0.8 && bOver > 0.8) return true; // Critère de dominance des canaux
+
+        return false;
     }
 
     /**
@@ -226,7 +244,7 @@ class WhiteCircleDetector {
                 
                 if (pixelMap.has(neighborKey) && !visited.has(neighborKey)) {
                     // Limiter la taille de la pile pour éviter les débordements
-                    if (stack.length < 1000) {
+                    if (stack.length < 10 * maxGroupSize) {
                         stack.push({ x: nx, y: ny });
                     }
                 }
@@ -237,32 +255,90 @@ class WhiteCircleDetector {
     }
 
     /**
-     * Calcule le centre d'un groupe de pixels
+     * Calcule le centre d'un groupe de pixels avec les dimensions
      */
     getGroupCenter(group) {
         const sumX = group.reduce((sum, p) => sum + p.x, 0);
         const sumY = group.reduce((sum, p) => sum + p.y, 0);
         
+        // Calculer les dimensions du groupe
+        const xCoords = group.map(p => p.x);
+        const yCoords = group.map(p => p.y);
+        const minX = Math.min(...xCoords);
+        const maxX = Math.max(...xCoords);
+        const minY = Math.min(...yCoords);
+        const maxY = Math.max(...yCoords);
+        
+        const width = maxX - minX + 1;
+        const height = maxY - minY + 1;
+        const radius = Math.max(width, height) / 2;
+        
         return {
             x: Math.round(sumX / group.length),
             y: Math.round(sumY / group.length),
-            size: group.length
+            size: group.length,
+            minX,
+            maxX,
+            minY,
+            maxY,
+            width,
+            height,
+            radius
         };
     }
 
     /**
      * Analyse les pixels autour d'un rond blanc pour déterminer la couleur de la carte
+     * Prend en compte les dimensions du groupe pour adapter l'échantillonnage
      */
-    analyzeCardColorAround(center, radius = 15) {
+    analyzeCardColorAround(center, radiusMultiplier = 1.5) {
         const sampledColors = [];
-        const samplePoints = 12; // Réduit pour plus de vitesse
         
+        // Utiliser le rayon calculé du groupe avec un multiplicateur pour sortir du blanc
+        const samplingRadius = Math.max(center.radius * radiusMultiplier, 15);
+        const samplePoints = Math.max(12, Math.round(center.radius / 3)); // Plus de points pour les gros groupes
+        
+        // Échantillonnage circulaire autour du centre
         for (let i = 0; i < samplePoints; i++) {
             const angle = (i / samplePoints) * 2 * Math.PI;
-            const x = Math.round(center.x + Math.cos(angle) * radius);
-            const y = Math.round(center.y + Math.sin(angle) * radius);
+            const x = Math.round(center.x + Math.cos(angle) * samplingRadius);
+            const y = Math.round(center.y + Math.sin(angle) * samplingRadius);
             
             const color = this.getPixelColor(x, y);
+            if (color) {
+                const hsl = this.rgbToHsl(color.r, color.g, color.b);
+                sampledColors.push(hsl);
+            }
+        }
+        
+        // Échantillonnage aux coins du rectangle englobant (étendu)
+        const cornerOffset = Math.round(samplingRadius * 0.7); // Distance des coins
+        const cornerPoints = [
+            { x: center.minX - cornerOffset, y: center.minY - cornerOffset }, // Coin haut-gauche
+            { x: center.maxX + cornerOffset, y: center.minY - cornerOffset }, // Coin haut-droite
+            { x: center.minX - cornerOffset, y: center.maxY + cornerOffset }, // Coin bas-gauche
+            { x: center.maxX + cornerOffset, y: center.maxY + cornerOffset }  // Coin bas-droite
+        ];
+        
+        for (const point of cornerPoints) {
+            const color = this.getPixelColor(point.x, point.y);
+            if (color) {
+                const hsl = this.rgbToHsl(color.r, color.g, color.b);
+                sampledColors.push(hsl);
+            }
+        }
+        
+        // Échantillonnage sur les côtés du rectangle (milieux des côtés)
+        const sideOffset = samplingRadius;
+        const sidePoints = [
+            { x: center.x, y: center.minY - sideOffset }, // Haut
+            { x: center.x, y: center.maxY + sideOffset }, // Bas
+            { x: center.minX - sideOffset, y: center.y }, // Gauche
+            { x: center.maxX + sideOffset, y: center.y }  // Droite
+        ];
+        
+        for (const point of sidePoints) {
+            const color = this.getPixelColor(point.x, point.y);
             if (color) {
                 const hsl = this.rgbToHsl(color.r, color.g, color.b);
                 sampledColors.push(hsl);
@@ -393,13 +469,24 @@ class WhiteCircleDetector {
             outputBuffer[dstIdx + 2] = data[srcIdx + 2]; // B
         }
         
-        // Générer des couleurs distinctes pour chaque groupe
-        const colors = this.generateDistinctColors(Math.min(groups.length, 100)); // Limiter à 100 couleurs
+        // Mapping des couleurs de cartes vers des couleurs RGB pour la visualisation
+        const cardColorMapping = {
+            'rouge': { r: 220, g: 60, b: 40 },
+            'bleu-marine': { r: 0, g: 0, b: 139 },
+            'bleu-turquoise': { r: 64, g: 224, b: 208 },
+            'vert': { r: 80, g: 122, b: 46 },
+            'orange': { r: 255, g: 140, b: 0 },
+            'rose': { r: 255, g: 20, b: 147 },
+            'noir': { r: 30, g: 30, b: 30 },
+            'inconnue': { r: 128, g: 128, b: 128 }
+        };
         
-        // Dessiner chaque groupe avec une couleur différente
+        // Dessiner chaque groupe avec sa couleur détectée
         groups.forEach((group, groupIndex) => {
-            const color = colors[groupIndex % colors.length];
             const center = this.getGroupCenter(group);
+            const cardColor = this.analyzeCardColorAround(center);
+            const colorName = cardColor ? cardColor.name : 'inconnue';
+            const color = cardColorMapping[colorName] || cardColorMapping['inconnue'];
             
             // Colorier tous les pixels du groupe
             group.forEach(pixel => {
