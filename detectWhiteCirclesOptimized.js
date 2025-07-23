@@ -202,7 +202,7 @@ class WhiteCircleDetector {
         // Vérifier le ratio largeur/hauteur (doit être proche de 1 pour un cercle)
         const aspectRatio = Math.max(width, height) / Math.min(width, height);
         if (aspectRatio > 1.5) return false; // Trop allongé
-        if (aspectRatio < 0.7) return false; // Trop étroit
+        if (aspectRatio < 0.66) return false; // Trop étroit
         
         // Vérifier la densité (% de pixels remplis dans le rectangle)
         const expectedArea = width * height;
