@@ -115,49 +115,7 @@ class WhiteCircleDetector {
     isWhitePixel(x, y) {
         const color = this.getPixelColor(x, y);
         if (!color) return false;
-
-        // Couleurs spécifiques à détecter avec variations :
-        // 198,213,234 (bleu très clair) + variations
-        // 247,247,255 (blanc cassé) + variations
-        
-        // Méthode 1: Distance euclidienne avec les couleurs cibles étendues
-        const targetColors = [
-            { r: 198, g: 213, b: 234 }, // Couleur originale 1
-            { r: 247, g: 247, b: 255 }, // Couleur originale 2
-            // Variations plus sombres
-            { r: 180, g: 195, b: 220 },
-            { r: 220, g: 230, b: 245 },
-            { r: 230, g: 230, b: 240 },
-            // Variations plus claires
-            { r: 240, g: 250, b: 255 },
-            { r: 255, g: 255, b: 255 }, // Blanc pur
-            // Nuances grises claires
-            { r: 220, g: 220, b: 220 },
-            { r: 240, g: 240, b: 240 }
-        ];
-        
-        for (const target of targetColors) {
-            const distance = Math.sqrt(
-                Math.pow(color.r - target.r, 2) +
-                Math.pow(color.g - target.g, 2) +
-                Math.pow(color.b - target.b, 2)
-            );
-            
-            // Si la distance est petite (couleur similaire), c'est un pixel blanc
-            if (distance < 50) { // Augmenté de 30 à 50 pour plus de tolérance
-                return true;
-            }
-        }
-        
-        // Méthode 2: Critères HSL pour les blancs/blancs cassés en général
-        const hsl = this.rgbToHsl(color.r, color.g, color.b);
-        
-        // Accepter les couleurs très claires avec peu de saturation
-        const isVeryLight = hsl.l >= 80; // Réduit de 75 à 80 pour accepter plus de nuances
-        const isLowSaturation = hsl.s <= 30; // Augmenté de 35 à 40
-        const isBlueishTint = (hsl.h >= 180 && hsl.h <= 260) || hsl.s < 15; // Élargi la plage bleue
-        
-        return isVeryLight && isLowSaturation && isBlueishTint;
+        return (color.r + color.g + color.b) > 570;
     }
 
     /**
