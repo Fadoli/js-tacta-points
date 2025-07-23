@@ -29,13 +29,6 @@ const CARD_COLORS = [
     }
 ];
 
-// Seuils pour la détection des ronds blancs
-const WHITE_DETECTION = {
-    minBrightness: 180,  // Réduit pour accepter des tons plus sombres
-    minSaturation: 0,    // Saturation minimale
-    maxSaturation: 50    // Augmenté pour accepter les tons bleus clairs
-};
-
 class WhiteCircleDetector {
     constructor(imagePath) {
         this.imagePath = imagePath;
@@ -160,8 +153,8 @@ class WhiteCircleDetector {
         const hsl = this.rgbToHsl(color.r, color.g, color.b);
         
         // Accepter les couleurs très claires avec peu de saturation
-        const isVeryLight = hsl.l >= 65; // Réduit de 75 à 65 pour accepter plus de nuances
-        const isLowSaturation = hsl.s <= 45; // Augmenté de 35 à 45
+        const isVeryLight = hsl.l >= 70; // Réduit de 75 à 70 pour accepter plus de nuances
+        const isLowSaturation = hsl.s <= 40; // Augmenté de 35 à 40
         const isBlueishTint = (hsl.h >= 180 && hsl.h <= 260) || hsl.s < 15; // Élargi la plage bleue
         
         return isVeryLight && isLowSaturation && isBlueishTint;
