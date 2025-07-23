@@ -215,13 +215,13 @@ class WhiteCircleDetector {
         console.log(`Plage de tailles: ${sizes[0]} - ${sizes[sizes.length - 1]} pixels`);
         
         // Utiliser l'écart-type pour définir la plage acceptable (±1 écart-type autour de la médiane)
-        const toleranceMultiplier = 1.5; // Nombre d'écarts-types à accepter
+        const toleranceMultiplier = 1; // Nombre d'écarts-types à accepter
         const minAcceptableSqrtSize = Math.max(1, medianSqrtSize - (toleranceMultiplier * stdDev));
         const maxAcceptableSqrtSize = medianSqrtSize + (toleranceMultiplier * stdDev);
         
         // Convertir back en pixels (aire)
         const minAcceptableSize = minAcceptableSqrtSize * minAcceptableSqrtSize;
-        const maxAcceptableSize = maxAcceptableSqrtSize * maxAcceptableSqrtSize * 1.5; // Ajustement pour éviter les petits groupes trop nombreux
+        const maxAcceptableSize = maxAcceptableSqrtSize * maxAcceptableSqrtSize; // Ajustement pour éviter les petits groupes trop nombreux
         
         console.log(`Plage acceptable (±${toleranceMultiplier}σ): ${Math.round(minAcceptableSize)} - ${Math.round(maxAcceptableSize)} pixels`);
         
@@ -255,8 +255,8 @@ class WhiteCircleDetector {
         
         // Vérifier le ratio largeur/hauteur (doit être proche de 1 pour un cercle)
         const aspectRatio = Math.max(width, height) / Math.min(width, height);
-        if (aspectRatio > 1.5) return false; // Trop allongé
-        if (aspectRatio < 0.66) return false; // Trop étroit
+        if (aspectRatio > 1.4) return false; // Trop allongé
+        if (aspectRatio < 0.7) return false; // Trop étroit
         
         // Vérifier la densité (% de pixels remplis dans le rectangle)
         const expectedArea = width * height;
@@ -265,7 +265,7 @@ class WhiteCircleDetector {
         
         // Un cercle devrait avoir une densité d'environ 0.785 (π/4)
         // Acceptons une plage plus large pour compenser les imperfections
-        return density > 0.6 && density < 0.9;
+        return density > 0.675 && density < 0.835;
     }
 
     /**
@@ -553,7 +553,10 @@ class WhiteCircleDetector {
             });
             
             // Dessiner une croix au centre du groupe (plus visible)
-            this.drawCross(outputBuffer, center.x, center.y, { r: 255, g: 0, b: 0 }, 5);
+            this.drawCross(outputBuffer, center.x-1, center.y-1, { r: 0, g: 0, b: 0 }, 10);
+            this.drawCross(outputBuffer, center.x+1, center.y+1, { r: 0, g: 0, b: 0 }, 10);
+            // Dessiner une croix au centre du groupe (plus visible)
+            this.drawCross(outputBuffer, center.x, center.y, { r: 255, g: 0, b: 0 }, 10);
         });
         
         // Sauvegarder l'image
@@ -570,24 +573,6 @@ class WhiteCircleDetector {
         console.log(`Image de visualisation sauvegardée: ${outputPath}`);
         return outputPath;
     }
-
-    /**
-     * Génère des couleurs distinctes pour la visualisation
-     */
-    generateDistinctColors(count) {
-        const colors = [];
-        const saturation = 255;
-        const lightness = 128;
-        
-        for (let i = 0; i < count; i++) {
-            const hue = (i * 360 / count) % 360;
-            const rgb = this.hslToRgb(hue, saturation, lightness);
-            colors.push(rgb);
-        }
-        
-        return colors;
-    }
-
     /**
      * Convertit HSL en RGB
      */
