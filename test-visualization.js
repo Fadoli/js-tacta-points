@@ -1,10 +1,15 @@
 const WhiteCircleDetector = require('./detectWhiteCirclesOptimized');
 
+
+const original = './img/1000007553.jpg';
+const newImage = './img/IMG_20250723_190131.jpg';
+const newerImage = './img/1000007555.jpg';
+
 async function testWithVisualization() {
     console.log('=== TEST AVEC VISUALISATION ===');
     
     try {
-        const detector = new WhiteCircleDetector('./img/1000007553.jpg');
+        const detector = new WhiteCircleDetector(newerImage);
         await detector.loadImage();
         
         console.log('Début de la détection avec génération de visualisation...');
