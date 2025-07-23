@@ -153,8 +153,8 @@ class WhiteCircleDetector {
         const hsl = this.rgbToHsl(color.r, color.g, color.b);
         
         // Accepter les couleurs très claires avec peu de saturation
-        const isVeryLight = hsl.l >= 70; // Réduit de 75 à 70 pour accepter plus de nuances
-        const isLowSaturation = hsl.s <= 40; // Augmenté de 35 à 40
+        const isVeryLight = hsl.l >= 80; // Réduit de 75 à 80 pour accepter plus de nuances
+        const isLowSaturation = hsl.s <= 30; // Augmenté de 35 à 40
         const isBlueishTint = (hsl.h >= 180 && hsl.h <= 260) || hsl.s < 15; // Élargi la plage bleue
         
         return isVeryLight && isLowSaturation && isBlueishTint;
