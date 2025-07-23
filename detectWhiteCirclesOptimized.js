@@ -169,11 +169,11 @@ class WhiteCircleDetector {
         
         // Deuxième passe : groupement avec flood fill
         const allGroups = [];
-        const visited = new Set();
+        const visited = {}; // Structure x -> y -> boolean pour accès rapide
         
         for (const pixel of whitePixels) {
-            const key = `${pixel.x},${pixel.y}`;
-            if (visited.has(key)) continue;
+            // Vérifier si déjà visité avec la structure d'objet
+            if (visited[pixel.x] && visited[pixel.x][pixel.y]) continue;
             
             const group = this.floodFillConnected(pixel, pixelGrid, visited);
             // Filtrer par taille minimale et forme approximativement circulaire
@@ -291,10 +291,15 @@ class WhiteCircleDetector {
         
         while (stack.length > 0 && group.length < maxGroupSize) {
             const current = stack.pop();
-            const key = `${current.x},${current.y}`;
             
-            if (visited.has(key)) continue;
-            visited.add(key);
+            // Vérifier si déjà visité avec la structure d'objet
+            if (visited[current.x] && visited[current.x][current.y]) continue;
+            
+            // Marquer comme visité
+            if (!visited[current.x]) {
+                visited[current.x] = {};
+            }
+            visited[current.x][current.y] = true;
             group.push(current);
             
             // Vérifier les 4 voisins directs
@@ -302,8 +307,8 @@ class WhiteCircleDetector {
                 const nx = current.x + dx;
                 const ny = current.y + dy;
                 
-                // Vérifier si le pixel existe dans la grille (accès O(1))
-                if (pixelGrid[nx] && pixelGrid[nx][ny] && !visited.has(`${nx},${ny}`)) {
+                // Vérifier si le pixel existe dans la grille et n'est pas déjà visité (accès O(1))
+                if (pixelGrid[nx] && pixelGrid[nx][ny] && !(visited[nx] && visited[nx][ny])) {
                     // Limiter la taille de la pile pour éviter les débordements
                     if (stack.length < 10 * maxGroupSize) {
                         stack.push({ x: nx, y: ny });
