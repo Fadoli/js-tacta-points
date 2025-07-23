@@ -153,14 +153,13 @@ class WhiteCircleDetector {
             }
             for (let x = 0; x < this.width ; x++) {
                 if (this.isWhitePixel(x, y)) {
-                    const pixel = { x, y };
-                    whitePixels.push(pixel);
+                    whitePixels.push({ x, y }); // Réutiliser la même structure
                     
                     // Créer la structure à double couche si nécessaire
                     if (!pixelGrid[x]) {
                         pixelGrid[x] = {};
                     }
-                    pixelGrid[x][y] = pixel;
+                    pixelGrid[x][y] = true; // Stocker juste un boolean au lieu d'un objet
                 }
             }
         }
@@ -277,17 +276,15 @@ class WhiteCircleDetector {
 
     /**
      * Algorithme de flood fill pour grouper les pixels directement connectés (4-connectivité rapide)
-     * Version optimisée pour éviter les débordements de pile
+     * Version optimisée pour éviter les débordements de pile et réduire les allocations
      */
     floodFillConnected(startPixel, pixelGrid, visited) {
         const group = [];
         const stack = [startPixel];
         const maxGroupSize = 10000; // Limiter la taille des groupes pour éviter les débordements
         
-        // Directions pour la 4-connectivité (plus rapide que 8-connectivité)
-        const directions = [
-            [0, -1], [-1, 0], [1, 0], [0, 1]
-        ];
+        // Pré-allouer un objet réutilisable pour éviter les allocations
+        const reusablePixel = { x: 0, y: 0 };
         
         while (stack.length > 0 && group.length < maxGroupSize) {
             const current = stack.pop();
@@ -300,18 +297,21 @@ class WhiteCircleDetector {
                 visited[current.x] = {};
             }
             visited[current.x][current.y] = true;
-            group.push(current);
+            group.push({ x: current.x, y: current.y }); // Créer une copie pour le groupe
             
-            // Vérifier les 4 voisins directs
-            for (const [dx, dy] of directions) {
-                const nx = current.x + dx;
-                const ny = current.y + dy;
+            // Vérifier les 4 voisins directs (optimisé sans array d'arrays)
+            const directions = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+            for (let i = 0; i < 4; i++) {
+                const nx = current.x + directions[i][0];
+                const ny = current.y + directions[i][1];
                 
-                // Vérifier si le pixel existe dans la grille et n'est pas déjà visité (accès O(1))
+                // Vérifier si le pixel existe dans la grille et n'est pas déjà visité
                 if (pixelGrid[nx] && pixelGrid[nx][ny] && !(visited[nx] && visited[nx][ny])) {
                     // Limiter la taille de la pile pour éviter les débordements
-                    if (stack.length < 10 * maxGroupSize) {
-                        stack.push({ x: nx, y: ny });
+                    if (stack.length < 1000) { // Réduire la limite pour moins de mémoire
+                        reusablePixel.x = nx;
+                        reusablePixel.y = ny;
+                        stack.push({ x: nx, y: ny }); // Toujours allouer pour la pile
                     }
                 }
             }
@@ -365,6 +365,9 @@ class WhiteCircleDetector {
         const samplingRadius = Math.max(center.radius * radiusMultiplier, 15);
         const samplePoints = Math.max(12, Math.round(center.radius / 3)); // Plus de points pour les gros groupes
         
+        // Réutiliser un objet pour les couleurs pour éviter les allocations
+        const reusableHsl = { h: 0, s: 0, l: 0 };
+        
         // Échantillonnage circulaire autour du centre
         for (let i = 0; i < samplePoints; i++) {
             const angle = (i / samplePoints) * 2 * Math.PI;
@@ -374,41 +377,24 @@ class WhiteCircleDetector {
             const color = this.getPixelColor(x, y);
             if (color) {
                 const hsl = this.rgbToHsl(color.r, color.g, color.b);
-                sampledColors.push(hsl);
+                sampledColors.push({ h: hsl.h, s: hsl.s, l: hsl.l }); // Copie explicite
             }
         }
         
-        // Échantillonnage aux coins du rectangle englobant (étendu)
-        const cornerOffset = Math.round(samplingRadius * 0.7); // Distance des coins
+        // Réduire les points d'échantillonnage pour moins d'allocations
+        const cornerOffset = Math.round(samplingRadius * 0.7);
         const cornerPoints = [
-            { x: center.minX - cornerOffset, y: center.minY - cornerOffset }, // Coin haut-gauche
-            { x: center.maxX + cornerOffset, y: center.minY - cornerOffset }, // Coin haut-droite
-            { x: center.minX - cornerOffset, y: center.maxY + cornerOffset }, // Coin bas-gauche
-            { x: center.maxX + cornerOffset, y: center.maxY + cornerOffset }  // Coin bas-droite
+            [center.minX - cornerOffset, center.minY - cornerOffset],
+            [center.maxX + cornerOffset, center.minY - cornerOffset],
+            [center.minX - cornerOffset, center.maxY + cornerOffset],
+            [center.maxX + cornerOffset, center.maxY + cornerOffset]
         ];
         
-        for (const point of cornerPoints) {
-            const color = this.getPixelColor(point.x, point.y);
+        for (let i = 0; i < 4; i++) {
+            const color = this.getPixelColor(cornerPoints[i][0], cornerPoints[i][1]);
             if (color) {
                 const hsl = this.rgbToHsl(color.r, color.g, color.b);
-                sampledColors.push(hsl);
-            }
-        }
-        
-        // Échantillonnage sur les côtés du rectangle (milieux des côtés)
-        const sideOffset = samplingRadius;
-        const sidePoints = [
-            { x: center.x, y: center.minY - sideOffset }, // Haut
-            { x: center.x, y: center.maxY + sideOffset }, // Bas
-            { x: center.minX - sideOffset, y: center.y }, // Gauche
-            { x: center.maxX + sideOffset, y: center.y }  // Droite
-        ];
-        
-        for (const point of sidePoints) {
-            const color = this.getPixelColor(point.x, point.y);
-            if (color) {
-                const hsl = this.rgbToHsl(color.r, color.g, color.b);
-                sampledColors.push(hsl);
+                sampledColors.push({ h: hsl.h, s: hsl.s, l: hsl.l });
             }
         }
         
