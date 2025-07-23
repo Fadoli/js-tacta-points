@@ -163,7 +163,7 @@ class WhiteCircleDetector {
         console.log(`Trouvé ${whitePixels.length} pixels blancs. Début du groupement...`);
         
         // Deuxième passe : groupement avec flood fill
-        const groups = [];
+        const allGroups = [];
         const visited = new Set();
         
         for (const pixel of whitePixels) {
@@ -171,17 +171,69 @@ class WhiteCircleDetector {
             if (visited.has(key)) continue;
             
             const group = this.floodFillConnected(pixel, pixelMap, visited);
-            // Filtrer par taille : ni trop petit, ni trop grand
-            if (group.length >= minGroupSize && group.length <= 500) { // Limite max à 500 pixels
-                // Filtrer par forme approximativement circulaire
+            // Filtrer par taille minimale et forme approximativement circulaire
+            if (group.length >= minGroupSize && group.length <= 2000) { // Augmenté la limite max
                 if (this.isCircularGroup(group)) {
-                    groups.push(group);
+                    allGroups.push(group);
                 }
             }
         }
         
-        console.log(`Trouvé ${groups.length} groupes de pixels blancs valides`);
-        return groups;
+        console.log(`Trouvé ${allGroups.length} groupes candidats`);
+        
+        // Filtrage par taille médiane
+        const filteredGroups = this.filterGroupsByMedianSize(allGroups);
+        
+        console.log(`Trouvé ${filteredGroups.length} groupes de pixels blancs valides après filtrage par taille`);
+        return filteredGroups;
+    }
+
+    /**
+     * Filtre les groupes en utilisant la taille médiane comme référence
+     */
+    filterGroupsByMedianSize(groups) {
+        if (groups.length === 0) return groups;
+        
+        // Calculer les tailles de tous les groupes (racine carrée pour obtenir une mesure linéaire)
+        const sizes = groups.map(group => group.length);
+        const sqrtSizes = sizes.map(size => Math.sqrt(size)).sort((a, b) => a - b);
+        
+        // Calculer la taille médiane (en mesure linéaire)
+        const medianIndex = Math.floor(sqrtSizes.length / 2);
+        const medianSqrtSize = sqrtSizes.length % 2 === 0 
+            ? (sqrtSizes[medianIndex - 1] + sqrtSizes[medianIndex]) / 2 
+            : sqrtSizes[medianIndex];
+        
+        // Calculer l'écart-type des tailles linéaires
+        const mean = sqrtSizes.reduce((sum, size) => sum + size, 0) / sqrtSizes.length;
+        const variance = sqrtSizes.reduce((sum, size) => sum + Math.pow(size - mean, 2), 0) / sqrtSizes.length;
+        const stdDev = Math.sqrt(variance);
+        
+        console.log(`Taille médiane des groupes: ${Math.round(medianSqrtSize * medianSqrtSize)} pixels (√=${Math.round(medianSqrtSize)})`);
+        console.log(`Taille moyenne: ${Math.round(mean * mean)} pixels (√=${Math.round(mean)})`);
+        console.log(`Écart-type (linéaire): ${Math.round(stdDev)}`);
+        console.log(`Plage de tailles: ${sizes[0]} - ${sizes[sizes.length - 1]} pixels`);
+        
+        // Utiliser l'écart-type pour définir la plage acceptable (±1 écart-type autour de la médiane)
+        const toleranceMultiplier = 1.5; // Nombre d'écarts-types à accepter
+        const minAcceptableSqrtSize = Math.max(1, medianSqrtSize - (toleranceMultiplier * stdDev));
+        const maxAcceptableSqrtSize = medianSqrtSize + (toleranceMultiplier * stdDev);
+        
+        // Convertir back en pixels (aire)
+        const minAcceptableSize = minAcceptableSqrtSize * minAcceptableSqrtSize;
+        const maxAcceptableSize = maxAcceptableSqrtSize * maxAcceptableSqrtSize * 1.5; // Ajustement pour éviter les petits groupes trop nombreux
+        
+        console.log(`Plage acceptable (±${toleranceMultiplier}σ): ${Math.round(minAcceptableSize)} - ${Math.round(maxAcceptableSize)} pixels`);
+        
+        // Filtrer les groupes dans la plage acceptable
+        const filteredGroups = groups.filter(group => {
+            const size = group.length;  
+            return size >= minAcceptableSize && size <= maxAcceptableSize;
+        });
+        
+        console.log(`Groupes filtrés: ${filteredGroups.length}/${groups.length}`);
+        
+        return filteredGroups;
     }
 
     /**
@@ -191,11 +243,13 @@ class WhiteCircleDetector {
         if (group.length < 20) return false; // Trop petit pour être un vrai rond
         
         // Calculer les dimensions du rectangle englobant
-        const minX = Math.min(...group.map(p => p.x));
-        const maxX = Math.max(...group.map(p => p.x));
-        const minY = Math.min(...group.map(p => p.y));
-        const maxY = Math.max(...group.map(p => p.y));
-        
+        const xMap = group.map(p => p.x);
+        const minX = Math.min(...xMap);
+        const maxX = Math.max(...xMap);
+        const yMap = group.map(p => p.y);
+        const minY = Math.min(...yMap);
+        const maxY = Math.max(...yMap);
+
         const width = maxX - minX + 1;
         const height = maxY - minY + 1;
         
