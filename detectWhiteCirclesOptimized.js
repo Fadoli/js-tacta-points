@@ -470,6 +470,125 @@ class WhiteCircleDetector {
     }
 
     /**
+     * Filtre les groupes isolés en analysant la densité spatiale
+     * Les vrais ronds de cartes sont généralement regroupés dans une zone de jeu
+     */
+    filterIsolatedGroups(groups) {
+        if (groups.length <= 2) return groups; // Pas assez de groupes pour analyser
+        
+        // Calculer les centres de tous les groupes
+        const centers = groups.map(group => this.getGroupCenter(group));
+        
+        // Calculer la matrice des distances entre tous les centres
+        const distances = this.calculateDistanceMatrix(centers);
+        
+        // Calculer pour chaque groupe sa distance minimale vers les autres
+        const minDistances = centers.map((center, i) => {
+            let minDist = Infinity;
+            for (let j = 0; j < centers.length; j++) {
+                if (i !== j) {
+                    minDist = Math.min(minDist, distances[i][j]);
+                }
+            }
+            return minDist;
+        });
+        
+        // Analyser la distribution des distances minimales (ce qui compte vraiment)
+        const sortedMinDistances = [...minDistances].sort((a, b) => a - b);
+        
+        // Calculer les statistiques sur les distances minimales
+        const meanMinDistance = minDistances.reduce((sum, d) => sum + d, 0) / minDistances.length;
+        const variance = minDistances.reduce((sum, d) => sum + Math.pow(d - meanMinDistance, 2), 0) / minDistances.length;
+        const stdDevMinDistance = Math.sqrt(variance);
+        
+        // Percentiles des distances minimales
+        const percentile50 = sortedMinDistances[Math.floor(sortedMinDistances.length * 0.50)]; // Médiane
+        const percentile75 = sortedMinDistances[Math.floor(sortedMinDistances.length * 0.75)];
+        const percentile90 = sortedMinDistances[Math.floor(sortedMinDistances.length * 0.90)];
+        
+        console.log(`Distribution des distances minimales:`);
+        console.log(`  Moyenne: ${Math.round(meanMinDistance)} pixels`);
+        console.log(`  Médiane (P50): ${Math.round(percentile50)} pixels`);
+        console.log(`  P75: ${Math.round(percentile75)} pixels`);
+        console.log(`  P90: ${Math.round(percentile90)} pixels`);
+        console.log(`  Écart-type: ${Math.round(stdDevMinDistance)} pixels`);
+        console.log(`  Plage: ${Math.round(sortedMinDistances[0])} - ${Math.round(sortedMinDistances[sortedMinDistances.length - 1])} pixels`);
+        
+        // Définir un seuil d'isolation basé sur la distribution des distances minimales
+        // Méthode 1: Écart interquartile (IQR) - plus robuste aux outliers
+        const q1 = sortedMinDistances[Math.floor(sortedMinDistances.length * 0.25)];
+        const q3 = percentile75;
+        const iqr = q3 - q1;
+        const iqrThreshold = q3 + (1.5 * iqr); // Seuil classique pour détecter les outliers
+        
+        // Méthode 2: Basé sur l'écart-type des distances minimales
+        const stdThreshold = meanMinDistance + (2.0 * stdDevMinDistance);
+        
+        // Méthode 3: Basé sur les percentiles
+        const percentileThreshold = percentile90 * 1.3;
+        
+        // Utiliser le seuil le plus conservateur (le plus petit)
+        const finalThreshold = percentileThreshold;
+        
+        console.log(`Seuil d'isolation: ${Math.round(finalThreshold)} pixels`);
+        console.log(`  - IQR (Q3 + 1.5×IQR): ${Math.round(iqrThreshold)} pixels`);
+        console.log(`  - Écart-type (μ + 2σ): ${Math.round(stdThreshold)} pixels`);
+        console.log(`  - Percentile (P90 × 1.3): ${Math.round(percentileThreshold)} pixels`);
+        
+        // Filtrer les groupes non isolés
+        const filteredGroups = [];
+        const filteredIndices = [];
+        
+        for (let i = 0; i < groups.length; i++) {
+            if (minDistances[i] <= finalThreshold) {
+                filteredGroups.push(groups[i]);
+                filteredIndices.push(i);
+            } else {
+                console.log(`Groupe isolé exclu - centre: (${centers[i].x}, ${centers[i].y}), distance min: ${Math.round(minDistances[i])}`);
+            }
+        }
+        
+        // Si on a exclu trop de groupes, appliquer un filtrage plus permissif
+        if (filteredGroups.length < groups.length * 0.4 && groups.length > 4) {
+            console.log('Filtrage trop agressif, application d\'un seuil plus permissif...');
+            // Utiliser le percentile 95 comme seuil de secours
+            const permissiveThreshold = sortedMinDistances[Math.floor(sortedMinDistances.length * 0.95)] * 1.2;
+            console.log(`Seuil permissif: ${Math.round(permissiveThreshold)} pixels`);
+            
+            filteredGroups.length = 0;
+            for (let i = 0; i < groups.length; i++) {
+                if (minDistances[i] <= permissiveThreshold) {
+                    filteredGroups.push(groups[i]);
+                }
+            }
+        }
+        
+        return filteredGroups;
+    }
+
+    /**
+     * Calcule la matrice des distances euclidiennes entre les centres
+     */
+    calculateDistanceMatrix(centers) {
+        const matrix = [];
+        
+        for (let i = 0; i < centers.length; i++) {
+            matrix[i] = [];
+            for (let j = 0; j < centers.length; j++) {
+                if (i === j) {
+                    matrix[i][j] = 0;
+                } else {
+                    const dx = centers[i].x - centers[j].x;
+                    const dy = centers[i].y - centers[j].y;
+                    matrix[i][j] = Math.sqrt(dx * dx + dy * dy);
+                }
+            }
+        }
+        
+        return matrix;
+    }
+
+    /**
      * Traite l'image complète et retourne les résultats
      */
     async detectWhiteCirclesAndColors(generateViz = true) {
@@ -478,15 +597,19 @@ class WhiteCircleDetector {
         // Trouve et groupe directement les pixels blancs
         const groups = this.findWhitePixelsAndGroup();
         
+        // Filtrer les groupes isolés (faux positifs probables)
+        const filteredGroups = this.filterIsolatedGroups(groups);
+        console.log(`Groupes après filtrage spatial: ${filteredGroups.length}/${groups.length}`);
+        
         // Générer une visualisation si demandé
         if (generateViz) {
-            await this.generateVisualization(groups, 'groupes_detectes.jpg');
+            await this.generateVisualization(filteredGroups, 'groupes_detectes.jpg');
         }
         
         // Analyse chaque groupe
         const results = [];
         console.log('Analyse des couleurs des cartes...');
-        for (const group of groups) {
+        for (const group of filteredGroups) {
             const center = this.getGroupCenter(group);
             const cardColor = this.analyzeCardColorAround(center);
             
