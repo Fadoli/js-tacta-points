@@ -5,32 +5,32 @@ const CARD_COLORS = [
     {
         name: 'rouge', 
         hsl: { h: 7, s: 69, l: 51 }, // Teinte rouge
-        tolerance: { h: 45, s: 45, l: 45 }
+        tolerance: {  h: 40, s: 40, l: 40 }
     },
     { 
         name: 'bleu-marine', 
         hsl: { h: 240, s: 60, l: 30 }, // Teinte bleu foncé
-        tolerance: { h: 45, s: 45, l: 45 }
+        tolerance: {  h: 40, s: 40, l: 40 }
     },
     { 
         name: 'bleu-turquoise', 
         hsl: { h: 195, s: 60, l: 50 }, // Teinte bleu-cyan
-        tolerance: { h: 45, s: 45, l: 45 }
+        tolerance: {  h: 40, s: 40, l: 40 }
     },
     { 
         name: 'vert', 
         hsl: { h: 95, s: 45, l: 33 }, // Teinte verte correspondant à RGB(80, 122, 46)
-        tolerance: { h: 45, s: 45, l: 45 }
+        tolerance: {  h: 40, s: 40, l: 40 }
     },
     { 
         name: 'orange', 
         hsl: { h: 35, s: 65, l: 55 }, // Teinte orange
-        tolerance: { h: 45, s: 45, l: 45 }
+        tolerance: {  h: 40, s: 40, l: 40 }
     },
     { 
         name: 'rose', 
         hsl: { h: 320, s: 70, l: 50 }, // Teinte rose-magenta
-        tolerance: { h: 45, s: 45, l: 45 }
+        tolerance: {  h: 40, s: 40, l: 40 }
     },
     {
         name: 'noir',
