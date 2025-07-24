@@ -35,7 +35,7 @@ const CARD_COLORS = [
     {
         name: 'noir',
         hsl: { h: 0, s: 0, l: 15 }, // Teinte noire
-        tolerance: { h: 360, s: 30, l: 25 }
+        tolerance: { h: 9999, s: 30, l: 25 }
     }
 ];
 
@@ -228,7 +228,7 @@ class WhiteCircleDetector {
         
         // Convertir back en pixels (aire)
         const minAcceptableSize = minAcceptableSqrtSize * minAcceptableSqrtSize;
-        const maxAcceptableSize = maxAcceptableSqrtSize * maxAcceptableSqrtSize; // Ajustement pour éviter les petits groupes trop nombreux
+        const maxAcceptableSize = maxAcceptableSqrtSize * maxAcceptableSqrtSize * 1.3; // Ajustement pour éviter les petits groupes trop nombreux
         
         console.log(`Plage acceptable (±${toleranceMultiplier}σ): ${Math.round(minAcceptableSize)} - ${Math.round(maxAcceptableSize)} pixels`);
         
@@ -274,7 +274,7 @@ class WhiteCircleDetector {
         
         // Un cercle devrait avoir une densité d'environ 0.785 (π/4)
         // Acceptons une plage plus large pour compenser les imperfections
-        return density > 0.675 && density < 0.835;
+        return density > 0.63 && density < 0.87;
     }
 
     /**
