@@ -144,35 +144,38 @@ class WhiteCircleDetector {
         
         // Première passe : collecter tous les pixels blancs (avec limitation)
         const whitePixels = [];
-        const pixelGrid = {}; // Structure x -> y -> pixel pour accès rapide
+        const pixelGrid = {}; // Structure y -> x -> pixel pour accès cache-friendly
+        const visited = {}; // Structure y -> x -> boolean pour accès cache-friendly
         const progressStep = Math.floor(this.height / 10);
         
         for (let y = 0; y < this.height ; y++) {
             if (y % progressStep === 0 && progressStep > 0) {
                 console.log(`Scan pixels blancs: ${Math.round(y / this.height * 100)}%`);
             }
+            const local = {}
             for (let x = 0; x < this.width ; x++) {
                 if (this.isWhitePixel(x, y)) {
                     whitePixels.push({ x, y }); // Réutiliser la même structure
-                    
-                    // Créer la structure à double couche si nécessaire
-                    if (!pixelGrid[x]) {
-                        pixelGrid[x] = {};
-                    }
-                    pixelGrid[x][y] = true; // Stocker juste un boolean au lieu d'un objet
+                    local[x] = true; // Stocker juste un boolean au lieu d'un objet
                 }
             }
+            pixelGrid[y] = local;
+            visited[y] = {};
         }
 
         console.log(`Trouvé ${whitePixels.length} pixels blancs. Début du groupement...`);
         
         // Deuxième passe : groupement avec flood fill
         const allGroups = [];
-        const visited = {}; // Structure x -> y -> boolean pour accès rapide
+        
+        visited[-1] = {}; // Pour éviter les erreurs d'accès
+        visited[this.height] = {}; // Pour éviter les erreurs d'accès
+        pixelGrid[-1] = {}; // Pour éviter les erreurs d'accès
+        pixelGrid[this.height] = {}; // Pour éviter les erreurs d'accès
         
         for (const pixel of whitePixels) {
             // Vérifier si déjà visité avec la structure d'objet
-            if (visited[pixel.x] && visited[pixel.x][pixel.y]) continue;
+            if (visited[pixel.y][pixel.x]) continue;
             
             const group = this.floodFillConnected(pixel, pixelGrid, visited);
             // Filtrer par taille minimale et forme approximativement circulaire
@@ -279,8 +282,9 @@ class WhiteCircleDetector {
      * Version optimisée pour éviter les débordements de pile et réduire les allocations
      */
     floodFillConnected(startPixel, pixelGrid, visited) {
-        const group = [];
+        if (visited[startPixel.y][startPixel.x]) return [];
         const stack = [startPixel];
+        const group = [];
         const maxGroupSize = 10000; // Limiter la taille des groupes pour éviter les débordements
         
         // Pré-allouer un objet réutilisable pour éviter les allocations
@@ -290,13 +294,9 @@ class WhiteCircleDetector {
             const current = stack.pop();
             
             // Vérifier si déjà visité avec la structure d'objet
-            if (visited[current.x] && visited[current.x][current.y]) continue;
+            if (visited[current.y][current.x]) continue;
             
-            // Marquer comme visité
-            if (!visited[current.x]) {
-                visited[current.x] = {};
-            }
-            visited[current.x][current.y] = true;
+            visited[current.y][current.x] = true;
             group.push({ x: current.x, y: current.y }); // Créer une copie pour le groupe
             
             // Vérifier les 4 voisins directs (optimisé sans array d'arrays)
@@ -306,7 +306,7 @@ class WhiteCircleDetector {
                 const ny = current.y + directions[i][1];
                 
                 // Vérifier si le pixel existe dans la grille et n'est pas déjà visité
-                if (pixelGrid[nx] && pixelGrid[nx][ny] && !(visited[nx] && visited[nx][ny])) {
+                if (pixelGrid[ny][nx] && !visited[ny][nx]) {
                     // Limiter la taille de la pile pour éviter les débordements
                     if (stack.length < 1000) { // Réduire la limite pour moins de mémoire
                         reusablePixel.x = nx;
