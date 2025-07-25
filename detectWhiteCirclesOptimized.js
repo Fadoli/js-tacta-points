@@ -152,12 +152,11 @@ class WhiteCircleDetector {
         if (!color) return false;
 
         const luminance = (color.r + color.g + color.b) / 3;
+
+        const maxLuminance = Math.max(color.r, color.g, color.b);
         
         // Critère principal : luminance faible
-        if (luminance < 80) return true;
-        
-        // Critère secondaire : couleurs sombres même si pas complètement noires
-        if (luminance < 120 && Math.max(color.r, color.g, color.b) < 140) return true;
+        if (maxLuminance < 80) return true;
         
         return false;
     }
@@ -206,7 +205,7 @@ class WhiteCircleDetector {
             
             const group = this.floodFillConnected(pixel, pixelGrid, visited);
             // Filtrer par taille minimale - les symboles sont plus grands que les ronds
-            if (group.length >= minGroupSize && group.length <= 5000) { 
+            if (group.length >= 10 * minGroupSize) { 
                 allGroups.push(group);
             }
         }
@@ -266,7 +265,7 @@ class WhiteCircleDetector {
         
         console.log(`Groupes sombres filtrés: ${filteredGroups.length}/${groups.length}`);
         
-        return filteredGroups;
+        return groups;
     }
 
     /**
@@ -441,7 +440,7 @@ class WhiteCircleDetector {
                 // Vérifier si le pixel existe dans la grille et n'est pas déjà visité
                 if (pixelGrid[ny][nx] && !visited[ny][nx]) {
                     // Limiter la taille de la pile pour éviter les débordements
-                    if (stack.length < 1000) { // Réduire la limite pour moins de mémoire
+                    if (stack.length < maxGroupSize) { // Réduire la limite pour moins de mémoire
                         reusablePixel.x = nx;
                         reusablePixel.y = ny;
                         stack.push({ x: nx, y: ny }); // Toujours allouer pour la pile
@@ -604,7 +603,7 @@ class WhiteCircleDetector {
 
     /**
      * Filtre les groupes isolés en analysant la densité spatiale
-     * Les vrais ronds de cartes sont généralement regroupés dans une zone de jeu
+     * Seule la distance au voisin le plus proche compte
      */
     filterIsolatedGroups(groups) {
         if (groups.length <= 2) return groups; // Pas assez de groupes pour analyser
@@ -615,109 +614,54 @@ class WhiteCircleDetector {
         // Calculer la matrice des distances entre tous les centres
         const distances = this.calculateDistanceMatrix(centers);
         
-        // Calculer pour chaque groupe sa distance minimale vers les autres ET la deuxième plus petite
+        // Calculer pour chaque groupe sa distance minimale vers les autres
         const minDistances = centers.map((center, i) => {
-            const distanceArray = [];
+            let minDist = Infinity;
             for (let j = 0; j < centers.length; j++) {
-                if (i !== j) {
-                    distanceArray.push(distances[i][j]);
+                if (i !== j && distances[i][j] < minDist) {
+                    minDist = distances[i][j];
                 }
             }
-            distanceArray.sort((a, b) => a - b);
-            
-            return {
-                first: distanceArray[0] || Infinity,  // Distance au plus proche voisin
-                second: distanceArray[1] || Infinity  // Distance au deuxième plus proche voisin
-            };
+            return minDist;
         });
         
-        // Extraire les distances pour l'analyse statistique
-        const firstDistances = minDistances.map(d => d.first);
-        const secondDistances = minDistances.map(d => d.second).filter(d => d !== Infinity);
+        // Analyser la distribution des distances minimales
+        const sortedDistances = [...minDistances].sort((a, b) => a - b);
         
-        // Analyser la distribution des distances minimales (ce qui compte vraiment)
-        const sortedFirstDistances = [...firstDistances].sort((a, b) => a - b);
-        const sortedSecondDistances = [...secondDistances].sort((a, b) => a - b);
+        // Calculer les statistiques
+        const meanDistance = minDistances.reduce((sum, d) => sum + d, 0) / minDistances.length;
+        const percentile75 = sortedDistances[Math.floor(sortedDistances.length * 0.75)];
+        const percentile90 = sortedDistances[Math.floor(sortedDistances.length * 0.90)];
         
-        // Calculer les statistiques sur les distances minimales
-        const meanFirstDistance = firstDistances.reduce((sum, d) => sum + d, 0) / firstDistances.length;
-        const meanSecondDistance = secondDistances.length > 0 ? 
-            secondDistances.reduce((sum, d) => sum + d, 0) / secondDistances.length : Infinity;
+        console.log(`Distribution des distances au plus proche voisin:`);
+        console.log(`  Moyenne: ${Math.round(meanDistance)} pixels`);
+        console.log(`  P75: ${Math.round(percentile75)} pixels`);
+        console.log(`  P90: ${Math.round(percentile90)} pixels`);
         
-        // Percentiles des distances minimales
-        const percentile50First = sortedFirstDistances[Math.floor(sortedFirstDistances.length * 0.50)];
-        const percentile75First = sortedFirstDistances[Math.floor(sortedFirstDistances.length * 0.75)];
-        const percentile90First = sortedFirstDistances[Math.floor(sortedFirstDistances.length * 0.90)];
+        // Définir le seuil d'isolation
+        const threshold = percentile90 * 1.3;
+        console.log(`Seuil d'isolation: ${Math.round(threshold)} pixels`);
         
-        const percentile50Second = sortedSecondDistances.length > 0 ? 
-            sortedSecondDistances[Math.floor(sortedSecondDistances.length * 0.50)] : Infinity;
-        const percentile75Second = sortedSecondDistances.length > 0 ? 
-            sortedSecondDistances[Math.floor(sortedSecondDistances.length * 0.75)] : Infinity;
-        
-        console.log(`Distribution des distances au 1er voisin:`);
-        console.log(`  Moyenne: ${Math.round(meanFirstDistance)} pixels`);
-        console.log(`  Médiane (P50): ${Math.round(percentile50First)} pixels`);
-        console.log(`  P75: ${Math.round(percentile75First)} pixels`);
-        console.log(`  P90: ${Math.round(percentile90First)} pixels`);
-        
-        if (secondDistances.length > 0) {
-            console.log(`Distribution des distances au 2ème voisin:`);
-            console.log(`  Moyenne: ${Math.round(meanSecondDistance)} pixels`);
-            console.log(`  Médiane (P50): ${Math.round(percentile50Second)} pixels`);
-        }
-        
-        // Définir des seuils d'isolation basés sur les deux distances
-        const firstThreshold = percentile90First * 1.3;
-        const secondThreshold = percentile75Second !== Infinity ? percentile75Second * 1.5 : Infinity;
-        
-        console.log(`Seuils d'isolation:`);
-        console.log(`  1er voisin: ${Math.round(firstThreshold)} pixels`);
-        if (secondThreshold !== Infinity) {
-            console.log(`  2ème voisin: ${Math.round(secondThreshold)} pixels`);
-        }
-        
-        // Filtrer les groupes non isolés en utilisant les deux critères
+        // Filtrer les groupes non isolés
         const filteredGroups = [];
-        const filteredIndices = [];
         
         for (let i = 0; i < groups.length; i++) {
-            const firstDist = minDistances[i].first;
-            const secondDist = minDistances[i].second;
-            
-            // Un groupe est considéré comme isolé si :
-            // 1. Son premier voisin est trop loin, OU
-            // 2. Son deuxième voisin est trop loin (indique un cluster trop dispersé)
-            const isIsolated = firstDist > firstThreshold || 
-                             (secondThreshold !== Infinity && secondDist > secondThreshold);
-            
-            if (!isIsolated) {
+            if (minDistances[i] <= threshold) {
                 filteredGroups.push(groups[i]);
-                filteredIndices.push(i);
             } else {
-                const reason = firstDist > firstThreshold ? '1er voisin trop loin' : '2ème voisin trop loin';
-                console.log(`Groupe isolé exclu (${reason}) - centre: (${centers[i].x}, ${centers[i].y}), distances: ${Math.round(firstDist)}, ${Math.round(secondDist)}`);
+                console.log(`Groupe isolé exclu - centre: (${centers[i].x}, ${centers[i].y}), distance: ${Math.round(minDistances[i])}`);
             }
         }
         
-        // Si on a exclu trop de groupes, appliquer un filtrage plus permissif
+        // Si on a exclu trop de groupes, appliquer un seuil plus permissif
         if (filteredGroups.length < groups.length * 0.4 && groups.length > 4) {
             console.log('Filtrage trop agressif, application d\'un seuil plus permissif...');
-            // Utiliser des seuils plus permissifs
-            const permissiveFirstThreshold = sortedFirstDistances[Math.floor(sortedFirstDistances.length * 0.95)] * 1.2;
-            const permissiveSecondThreshold = sortedSecondDistances.length > 0 ? 
-                sortedSecondDistances[Math.floor(sortedSecondDistances.length * 0.90)] * 1.3 : Infinity;
-            
-            console.log(`Seuils permissifs: 1er=${Math.round(permissiveFirstThreshold)}, 2ème=${permissiveSecondThreshold !== Infinity ? Math.round(permissiveSecondThreshold) : 'N/A'}`);
+            const permissiveThreshold = sortedDistances[Math.floor(sortedDistances.length * 0.95)] * 1.2;
+            console.log(`Seuil permissif: ${Math.round(permissiveThreshold)} pixels`);
             
             filteredGroups.length = 0;
             for (let i = 0; i < groups.length; i++) {
-                const firstDist = minDistances[i].first;
-                const secondDist = minDistances[i].second;
-                
-                const isIsolated = firstDist > permissiveFirstThreshold || 
-                                 (permissiveSecondThreshold !== Infinity && secondDist > permissiveSecondThreshold);
-                
-                if (!isIsolated) {
+                if (minDistances[i] <= permissiveThreshold) {
                     filteredGroups.push(groups[i]);
                 }
             }
@@ -794,31 +738,6 @@ class WhiteCircleDetector {
         
         console.log(`Groupes blancs validés par proximité sombre: ${validatedGroups.length}/${whiteGroups.length} (seuil: ${maxDistance}px)`);
         return validatedGroups;
-    }
-
-    /**
-     * Filtre les groupes blancs qui ne sont pas suffisamment proches de zones sombres
-     * Les vrais ronds de cartes doivent être entourés de symboles sombres
-     */
-    filterGroupsByDarkProximity(groups, minDarkPercentage = 15) {
-        console.log('Filtrage par proximité aux zones sombres...');
-        
-        const validGroups = [];
-        
-        for (const group of groups) {
-            const center = this.getGroupCenter(group);
-            const darkAnalysis = this.analyzeProximityToDarkAreas(center);
-                validGroups.push(group);
-            
-            if (darkAnalysis.darkPercentage >= minDarkPercentage) {
-                //validGroups.push(group);
-            } else {
-                console.log(`Groupe exclu (faible proximité sombre) - centre: (${center.x}, ${center.y}), sombre: ${Math.round(darkAnalysis.darkPercentage)}%`);
-            }
-        }
-        
-        console.log(`Groupes avec proximité sombre suffisante: ${validGroups.length}/${groups.length} (seuil: ${minDarkPercentage}%)`);
-        return validGroups;
     }
 
     /**
@@ -903,9 +822,9 @@ class WhiteCircleDetector {
             group.forEach(pixel => {
                 const idx = (pixel.y * this.width + pixel.x) * 3;
                 if (idx >= 0 && idx < outputBuffer.length - 2) {
-                    outputBuffer[idx] = 80;     // R - rouge foncé
-                    outputBuffer[idx + 1] = 20; // G
-                    outputBuffer[idx + 2] = 20; // B
+                    outputBuffer[idx] = 255;     // R - rouge foncé
+                    outputBuffer[idx + 1] = 255; // G
+                    outputBuffer[idx + 2] = 255; // B
                 }
             });
         });
