@@ -4,10 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "node test.js",
-    "detect": "node index.js",
-    "advanced": "node test.js"
+    "start": "node test-visualisation.js",
+    "profile": "node --prof test-visualization.js",
+    "profile-analyze": "node --prof-process isolate-*.log > profile-report.txt"
   },
   "keywords": [],
   "author": "",

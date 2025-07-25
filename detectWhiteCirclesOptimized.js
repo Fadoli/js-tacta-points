@@ -163,46 +163,110 @@ class WhiteCircleDetector {
     }
 
     /**
-     * Vérifie la proximité d'un groupe blanc avec des zones sombres
-     * Retourne le pourcentage de pixels sombres dans un rayon donné autour du centre
+     * Trouve les pixels sombres et les groupe directement par zones connectées
+     * Utilisé pour détecter les symboles de cartes (plus grands que les ronds blancs)
      */
-    analyzeProximityToDarkAreas(center, searchRadius = null) {
-        // Utiliser le rayon du groupe ou un rayon par défaut
-        const radius = searchRadius || Math.max(center.radius + 5, center.radius * 1.5);
+    findDarkPixelsAndGroup(minGroupSize = 50) { // Plus grand que les ronds blancs
+        console.log(`Début du scan des pixels sombres...`);
         
-        let totalSamples = 0;
-        let darkSamples = 0;
+        // Première passe : collecter tous les pixels sombres
+        const darkPixels = [];
+        const pixelGrid = {}; // Structure y -> x -> pixel pour accès cache-friendly
+        const visited = {}; // Structure y -> x -> boolean pour accès cache-friendly
+        const progressStep = Math.floor(this.height / 20); // Moins de logging pour les zones sombres
         
-        // Échantillonnage en grille autour du centre
-        const step = Math.max(1, Math.floor(radius / 8)); // Pas d'échantillonnage adaptatif
-        
-        for (let dy = -radius; dy <= radius; dy += step) {
-            for (let dx = -radius; dx <= radius; dx += step) {
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                // Échantillonner dans un cercle autour du centre
-                if (distance <= radius && distance > center.radius * 0.8) { // Exclure l'intérieur du rond blanc
-                    const x = center.x + dx;
-                    const y = center.y + dy;
-                    
-                    if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
-                        totalSamples++;
-                        if (this.isDarkPixel(x, y)) {
-                            darkSamples++;
-                        }
-                    }
+        for (let y = 0; y < this.height ; y++) {
+            if (y % progressStep === 0 && progressStep > 0) {
+                console.log(`Scan pixels sombres: ${Math.round(y / this.height * 100)}%`);
+            }
+            const local = {}
+            for (let x = 0; x < this.width ; x++) {
+                if (this.isDarkPixel(x, y)) {
+                    darkPixels.push({ x, y });
+                    local[x] = true;
                 }
+            }
+            pixelGrid[y] = local;
+            visited[y] = {};
+        }
+
+        console.log(`Trouvé ${darkPixels.length} pixels sombres. Début du groupement...`);
+        
+        // Deuxième passe : groupement avec flood fill
+        const allGroups = [];
+
+        visited[-1] = {}; // Pour éviter les erreurs d'accès
+        visited[this.height] = {}; // Pour éviter les erreurs d'accès
+        pixelGrid[-1] = {}; // Pour éviter les erreurs d'accès
+        pixelGrid[this.height] = {}; // Pour éviter les erreurs d'accès
+        
+        for (const pixel of darkPixels) {
+            // Vérifier si déjà visité avec la structure d'objet
+            if (visited[pixel.y][pixel.x]) continue;
+            
+            const group = this.floodFillConnected(pixel, pixelGrid, visited);
+            // Filtrer par taille minimale - les symboles sont plus grands que les ronds
+            if (group.length >= minGroupSize && group.length <= 5000) { 
+                allGroups.push(group);
             }
         }
         
-        const darkPercentage = totalSamples > 0 ? (darkSamples / totalSamples) * 100 : 0;
+        console.log(`Trouvé ${allGroups.length} groupes de pixels sombres candidats`);
         
-        return {
-            darkPercentage,
-            totalSamples,
-            darkSamples,
-            searchRadius: radius
-        };
+        // Filtrage par taille médiane pour les groupes sombres
+        const filteredGroups = this.filterDarkGroupsByMedianSize(allGroups);
+        
+        console.log(`Trouvé ${filteredGroups.length} groupes de pixels sombres valides après filtrage`);
+        return filteredGroups;
+    }
+
+    /**
+     * Filtre les groupes sombres en utilisant la taille médiane comme référence
+     * Similaire à filterGroupsByMedianSize mais adapté aux zones sombres plus grandes
+     */
+    filterDarkGroupsByMedianSize(groups) {
+        if (groups.length === 0) return groups;
+        
+        // Calculer les tailles de tous les groupes (racine carrée pour obtenir une mesure linéaire)
+        const sizes = groups.map(group => group.length);
+        sizes.sort((a, b) => a - b);
+        const sqrtSizes = sizes.map(size => Math.sqrt(size)).sort((a, b) => a - b);
+        
+        // Calculer la taille médiane (en mesure linéaire)
+        const medianIndex = Math.floor(sqrtSizes.length / 2);
+        const medianSqrtSize = sqrtSizes.length % 2 === 0 
+            ? (sqrtSizes[medianIndex - 1] + sqrtSizes[medianIndex]) / 2 
+            : sqrtSizes[medianIndex];
+        
+        // Calculer l'écart-type des tailles linéaires
+        const mean = sqrtSizes.reduce((sum, size) => sum + size, 0) / sqrtSizes.length;
+        const variance = sqrtSizes.reduce((sum, size) => sum + Math.pow(size - mean, 2), 0) / sqrtSizes.length;
+        const stdDev = Math.sqrt(variance);
+        
+        console.log(`Taille médiane des groupes sombres: ${Math.round(medianSqrtSize * medianSqrtSize)} pixels (√=${Math.round(medianSqrtSize)})`);
+        console.log(`Écart-type (linéaire) sombres: ${Math.round(stdDev)}`);
+        console.log(`Plage de tailles sombres: ${sizes[0]} - ${sizes[sizes.length - 1]} pixels`);
+        
+        // Utiliser une tolérance plus large pour les groupes sombres (symboles variables)
+        const toleranceMultiplier = 1.5; // Plus permissif que pour les ronds blancs
+        const minAcceptableSqrtSize = Math.max(1, medianSqrtSize - (toleranceMultiplier * stdDev));
+        const maxAcceptableSqrtSize = medianSqrtSize + (toleranceMultiplier * stdDev);
+        
+        // Convertir back en pixels (aire)
+        const minAcceptableSize = minAcceptableSqrtSize * minAcceptableSqrtSize;
+        const maxAcceptableSize = maxAcceptableSqrtSize * maxAcceptableSqrtSize * 1.5; // Plus permissif
+        
+        console.log(`Plage acceptable sombres (±${toleranceMultiplier}σ): ${Math.round(minAcceptableSize)} - ${Math.round(maxAcceptableSize)} pixels`);
+        
+        // Filtrer les groupes dans la plage acceptable
+        const filteredGroups = groups.filter(group => {
+            const size = group.length;  
+            return size >= minAcceptableSize && size <= maxAcceptableSize;
+        });
+        
+        console.log(`Groupes sombres filtrés: ${filteredGroups.length}/${groups.length}`);
+        
+        return filteredGroups;
     }
 
     /**
@@ -685,6 +749,54 @@ class WhiteCircleDetector {
     }
 
     /**
+     * Valide la proximité des groupes blancs avec les groupes sombres détectés
+     * Une vraie carte doit avoir des ronds blancs proches de symboles sombres
+     */
+    validateWhiteGroupsWithDarkGroups(whiteGroups, darkGroups, maxDistance = 100) {
+        console.log('Validation des groupes blancs avec les groupes sombres...');
+        
+        if (darkGroups.length === 0) {
+            console.log('Aucun groupe sombre détecté, validation ignorée');
+            return whiteGroups;
+        }
+        
+        // Calculer les centres des groupes sombres
+        const darkCenters = darkGroups.map(group => this.getGroupCenter(group));
+        
+        const validatedGroups = [];
+        
+        for (const whiteGroup of whiteGroups) {
+            const whiteCenter = this.getGroupCenter(whiteGroup);
+            
+            // Trouver la distance minimale vers un groupe sombre
+            let minDistanceToDark = Infinity;
+            let closestDarkGroup = null;
+            
+            for (let i = 0; i < darkCenters.length; i++) {
+                const darkCenter = darkCenters[i];
+                const dx = whiteCenter.x - darkCenter.x;
+                const dy = whiteCenter.y - darkCenter.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < minDistanceToDark) {
+                    minDistanceToDark = distance;
+                    closestDarkGroup = i;
+                }
+            }
+            
+            // Valider si le groupe blanc est suffisamment proche d'un groupe sombre
+            if (minDistanceToDark <= maxDistance) {
+                validatedGroups.push(whiteGroup);
+            } else {
+                console.log(`Groupe blanc exclu (pas de symbole sombre proche) - centre: (${whiteCenter.x}, ${whiteCenter.y}), distance min: ${Math.round(minDistanceToDark)}`);
+            }
+        }
+        
+        console.log(`Groupes blancs validés par proximité sombre: ${validatedGroups.length}/${whiteGroups.length} (seuil: ${maxDistance}px)`);
+        return validatedGroups;
+    }
+
+    /**
      * Filtre les groupes blancs qui ne sont pas suffisamment proches de zones sombres
      * Les vrais ronds de cartes doivent être entourés de symboles sombres
      */
@@ -716,34 +828,35 @@ class WhiteCircleDetector {
         console.log('Début de la détection...');
         
         // Trouve et groupe directement les pixels blancs
-        const groups = this.findWhitePixelsAndGroup();
+        const whiteGroups = this.findWhitePixelsAndGroup();
         
-        // Filtrer les groupes isolés (faux positifs probables)
-        const spatiallyFilteredGroups = this.filterIsolatedGroups(groups);
-        console.log(`Groupes après filtrage spatial: ${spatiallyFilteredGroups.length}/${groups.length}`);
+        // Trouve et groupe les pixels sombres (symboles de cartes)
+        const darkGroups = this.findDarkPixelsAndGroup();
         
-        // Filtrer par proximité aux zones sombres (symboles de cartes)
-        const darkFilteredGroups = this.filterGroupsByDarkProximity(spatiallyFilteredGroups);
-        console.log(`Groupes après filtrage par proximité sombre: ${darkFilteredGroups.length}/${spatiallyFilteredGroups.length}`);
+        // Filtrer les groupes blancs isolés (faux positifs probables)
+        const spatiallyFilteredGroups = this.filterIsolatedGroups(whiteGroups);
+        console.log(`Groupes blancs après filtrage spatial: ${spatiallyFilteredGroups.length}/${whiteGroups.length}`);
+        
+        // Valider la proximité avec les groupes sombres détectés
+        const darkValidatedGroups = this.validateWhiteGroupsWithDarkGroups(spatiallyFilteredGroups, darkGroups);
+        console.log(`Groupes blancs après validation par groupes sombres: ${darkValidatedGroups.length}/${spatiallyFilteredGroups.length}`);
         
         // Générer une visualisation si demandé
         if (generateViz) {
-            await this.generateVisualization(darkFilteredGroups, 'groupes_detectes.jpg');
+            await this.generateVisualization(darkValidatedGroups, darkGroups, 'groupes_detectes.jpg');
         }
         
         // Analyse chaque groupe
         const results = [];
         console.log('Analyse des couleurs des cartes...');
-        for (const group of darkFilteredGroups) {
+        for (const group of darkValidatedGroups) {
             const center = this.getGroupCenter(group);
             const cardColor = this.analyzeCardColorAround(center);
-            const darkAnalysis = this.analyzeProximityToDarkAreas(center);
             
             results.push({
                 center,
                 cardColor: cardColor ? cardColor.name : 'inconnue',
                 confidence: cardColor ? 'haute' : 'faible',
-                darkProximity: Math.round(darkAnalysis.darkPercentage)
             });
         }
         
@@ -753,8 +866,8 @@ class WhiteCircleDetector {
     /**
      * Génère une image de visualisation des groupes détectés
      */
-    async generateVisualization(groups, outputPath = 'output_visualization.jpg') {
-        console.log(`Génération de l'image de visualisation avec ${groups.length} groupes...`);
+    async generateVisualization(whiteGroups, darkGroups = [], outputPath = 'output_visualization.jpg') {
+        console.log(`Génération de l'image de visualisation avec ${whiteGroups.length} groupes blancs et ${darkGroups.length} groupes sombres...`);
         
         // Créer une copie de l'image originale
         const image = sharp(this.imagePath);
@@ -784,14 +897,27 @@ class WhiteCircleDetector {
             'inconnue': { r: 128, g: 128, b: 128 }
         };
         
-        // Dessiner chaque groupe avec sa couleur détectée
-        groups.forEach((group, groupIndex) => {
+        // Dessiner les groupes sombres détectés en premier (arrière-plan)
+        darkGroups.forEach((group, groupIndex) => {
+            // Colorier les pixels des groupes sombres en rouge foncé pour les distinguer
+            group.forEach(pixel => {
+                const idx = (pixel.y * this.width + pixel.x) * 3;
+                if (idx >= 0 && idx < outputBuffer.length - 2) {
+                    outputBuffer[idx] = 80;     // R - rouge foncé
+                    outputBuffer[idx + 1] = 20; // G
+                    outputBuffer[idx + 2] = 20; // B
+                }
+            });
+        });
+        
+        // Dessiner chaque groupe blanc avec sa couleur détectée (premier plan)
+        whiteGroups.forEach((group, groupIndex) => {
             const center = this.getGroupCenter(group);
             const cardColor = this.analyzeCardColorAround(center);
             const colorName = cardColor ? cardColor.name : 'inconnue';
             const color = cardColorMapping[colorName] || cardColorMapping['inconnue'];
             
-            // Colorier tous les pixels du groupe
+            // Colorier tous les pixels du groupe blanc
             group.forEach(pixel => {
                 const idx = (pixel.y * this.width + pixel.x) * 3;
                 if (idx >= 0 && idx < outputBuffer.length - 2) {
@@ -893,7 +1019,6 @@ class WhiteCircleDetector {
      */
     generateReport(results) {
         const counts = {};
-        let totalDarkProximity = 0;
         
         for (const result of results) {
             const color = result.cardColor;
@@ -901,32 +1026,14 @@ class WhiteCircleDetector {
                 counts[color] = 0;
             }
             counts[color]++;
-            
-            if (result.darkProximity !== undefined) {
-                totalDarkProximity += result.darkProximity;
-            }
         }
         
         console.log('\n=== RAPPORT DE DÉTECTION ===');
         console.log(`Total de ronds blancs détectés: ${results.length}`);
-        
-        if (results.length > 0 && results[0].darkProximity !== undefined) {
-            const avgDarkProximity = totalDarkProximity / results.length;
-            console.log(`Proximité moyenne aux zones sombres: ${Math.round(avgDarkProximity)}%`);
-        }
-        
         console.log('\nComptage par couleur de carte:');
         
         for (const [color, count] of Object.entries(counts)) {
             console.log(`  ${color}: ${count} rond(s)`);
-        }
-        
-        // Afficher les détails de proximité sombre pour chaque groupe
-        if (results.length > 0 && results[0].darkProximity !== undefined) {
-            console.log('\nDétails de proximité sombre:');
-            results.forEach((result, index) => {
-                console.log(`  Groupe ${index + 1}: ${result.cardColor} - ${result.darkProximity}% sombre`);
-            });
         }
         
         return counts;
